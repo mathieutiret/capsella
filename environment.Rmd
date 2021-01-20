@@ -1,0 +1,47 @@
+---
+title: "Environmental analysis"
+author: "Mathieu Tiret"
+date: "06/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F)
+source("impl/header.R")
+```
+
+
+# Boxplots
+
+```{r}
+env.data %>% 
+  ggplot() + 
+  geom_boxplot( aes(site, temperature) ) + 
+  ylab("Temperature (°C)") + xlab("")
+
+env.data %>% 
+  ggplot() + 
+  geom_boxplot( aes(site, humidity) ) + 
+  ylab("Humidity (%)") + xlab("")
+
+env.data %>% 
+  ggplot() + 
+  geom_boxplot( aes(site, daylength) ) + 
+  ylab("Day length (hour)") + xlab("")
+```
+
+
+# PCA
+
+```{r}
+env.data %>% 
+  select( -day_expe ) %>% 
+  rename( Temperature = temperature, 
+          `Day Length` = daylength,
+          Humidity = humidity ) %>% 
+  pca.plot( group = "site", var.plot = F ) + 
+  scale_color_manual( values = c("uppsala" = muted("yellow"), 
+                                 "toronto" = "orange",
+                                 "guangzhou" = "#d2b48c") ) + 
+  guides( color = guide_legend("Common garden") )
+```

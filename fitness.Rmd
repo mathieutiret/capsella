@@ -1,0 +1,368 @@
+---
+title: "Fitness analysis"
+author: "Mathieu Tiret"
+date: "06/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("impl/header.R")
+```
+
+# Preliminary analysis
+
+## Separating dataset
+
+```{r}
+lmer( fitness ~ cluster_new * dataset + (1|accessionID) + (1|blockID),
+      data = .data ) -> m
+m %>% Anova()
+```
+
+## Environmental effect
+
+```{r}
+up = .data %>% filter(dataset == "uppsala") %>% pull(fitness)
+gu = .data %>% filter(dataset == "guangzhou") %>% pull(fitness)
+to = .data %>% filter(dataset == "toronto") %>% pull(fitness)
+
+t.test(up, gu)
+t.test(up, to)
+t.test(to, gu) 
+```
+
+
+
+## PCA on phenotypes
+
+```{r}
+# extracting data. ----------------------------------------
+data =
+  .data %>%
+  select(
+    dataset, cluster_new,
+    "Bolting" = BT, "Flowering" = FT, "Senescence" = ST,
+    "Nb. rosette leaves" = nb_l_ros, "Diameter rosette" = diam_ros,
+    "Nb. pr. br." = nb_pbr, "Height" = height, "Nb. fruits" = fitness )
+
+# displaying plot. ----------------------------------------
+# data %>%
+#   pca.plot( group = "dataset", contrib = T, sup.var = "Nb. fruits", 
+#             var.plot = F ) +
+#   guides( color = guide_legend("Common Garden") ) 
+
+data %>%
+  filter_na( cluster_new, dataset ) %>% 
+  unite( col = "new", dataset, cluster_new ) %>% 
+  pca.plot( group = "new", contrib = T, sup.var = "Nb. fruits",
+            var.plot = F, ellipse = F,
+            alpha.point = 0.2, custom = T ) +
+  scale_shape_manual(
+    values = c(
+      "uppsala_EUR" = 22, "uppsala_ASI" = 22, "uppsala_ME"  = 22,
+      "guangzhou_EUR" = 8, "guangzhou_ASI" = 8, "guangzhou_ME"  = 8,
+      "toronto_EUR" = 4, "toronto_ASI" = 4, "toronto_ME"  = 4
+    )
+  ) + 
+  
+  scale_color_manual(
+    values = c(
+      "uppsala_EUR" = 1, "uppsala_ASI" = 1, "uppsala_ME"  = 1,
+      "guangzhou_EUR" = "red", "guangzhou_ASI" = "#3dcd64", "guangzhou_ME"  = "#7C40F5" ,
+      "toronto_EUR" = "red", "toronto_ASI" = "#3dcd64", "toronto_ME"  = "#7C40F5" 
+    )
+  ) + 
+  
+  scale_fill_manual(
+    values = c(
+      "uppsala_EUR" = "red", 
+      "uppsala_ASI" = "#3dcd64", 
+      "uppsala_ME"  = "#7C40F5",
+      "guangzhou_EUR" = "red", "guangzhou_ASI" = "#3dcd64", "guangzhou_ME"  = "#7C40F5" ,
+      "toronto_EUR" = "red", "toronto_ASI" = "#3dcd64", "toronto_ME"  = "#7C40F5" 
+    )
+  ) + 
+  
+  guides( col = F, shape = F, fill = F )
+  
+  #+
+  # guides( color = guide_legend("Cluster"), 
+  #         shape = guide_legend("Common garden") ) +
+  
+  # colouring. 
+  # scale_color_manual( name = "Cluster", values = rep("black",3) ) +
+  # scale_fill_manual( name = "Cluster", 
+  #                    values = c("uppsala" = 1, "guangzhou" = 1,
+  #                                "toronto" = 4) ) +
+  # scale_shape_discrete( solid = F ) + 
+  # scale_shape_manual( values = c("uppsala" = 18, "guangzhou" = 8,
+  # "toronto" = 4) )
+
+```
+
+
+```{r}
+pca = data %>% pca.plot( var.plot = F, group = dataset, ellipse = F, contrib = T, var.axes.name = F, sup.var = "Nb. fruits", plot = F )
+
+cg.plot = data %>% 
+  pca.plot( var.plot = F, group = dataset, ellipse = F, contrib = T, var.axes.name = F, sup.var = "Nb. fruits" ) + 
+  scale_color_manual( values = c("uppsala" = muted("yellow"), 
+                                 "toronto" = "orange",
+                                 "guangzhou" = "#d2b48c") ) + 
+  guides( color = guide_legend("Common garden") )
+
+cl.plot = data %>% 
+  pca.plot( var.plot = F, group = cluster_new, ellipse = F, contrib = T, sup.var = "Nb. fruits", var.axes.name = F  ) + 
+  scale_color_manual( values = .ccl ) + 
+  guides( color = guide_legend("Cluster") )
+
+cg.plot
+cl.plot
+
+```
+
+
+
+```{r}
+
+# computing cos2. -----------------------------------------
+data %>%
+  na.omit() %>%
+  select_if( is.numeric ) %>% 
+  select( -`Nb. fruits`) %>% 
+  prcomp( center = T, scale = T ) -> pr
+
+corrplot(
+  pr$rotation^2/rowSums( pr$rotation^2 ),
+  is.corr = F
+)
+
+# cos2 = tibble(
+#   var = rownames(pr$rotation),
+#   contrib = rowSums((pr$rotation^2/rowSums( pr$rotation^2 ))[,1:2])/2
+# ) %>%
+#   arrange(-contrib) %>%
+#   mutate( var = factor(var, levels = var) )
+# 
+# cos2 %>%
+#   ggplot() +
+#   geom_bar( aes(var, contrib), stat = "identity", fill = "steelblue") +
+# 
+#   xlab("") + ylab("Quality of representation (cos2)" ) +
+#   theme(
+#     axis.text.x =
+#       element_text(angle = 45, hjust = 1, vjust = 1 )
+#   )
+```
+
+
+```{r}
+nrow = 10000
+ncol = 10
+fake = matrix( rnorm(nrow * ncol), nrow = nrow, ncol = ncol )
+
+pca = prcomp( fake %>% as_tibble, scale = T, center = T )
+corrplot(
+  pca$rotation^2/rowSums(pca$rotation^2), is.corr = F
+)
+```
+
+
+
+```{r}
+theta = seq( 0, 2 * pi, length.out = 100 )
+circle = tibble( x = cos(theta), y = sin(theta) )
+axes = pr7$rotation %>% as_tibble( rownames = "variable" )
+
+p =
+  ggplot() + 
+  geom_path( data = circle, aes(x,y)  ) + 
+  
+  geom_segment( data = axes,
+                aes( x = 0, y = 0, xend = PC1, yend = PC2,
+                     col = variable ),
+                arrow = arrow( length = unit( 0.5, "picas") ) ) + 
+  
+  geom_text( data = axes, aes( PC1, PC2, label = variable ) ) +
+  
+  coord_fixed( ratio = 1 ) + 
+  xlab( "PC1" ) + ylab( "PC2" )
+
+p
+```
+
+## Interaction plot (before analysis)
+
+```{r}
+.data %>% 
+  filter_na( cluster_new ) %>% 
+  group_by( dataset, cluster_new ) %>% 
+  summarise( y = mean(fitness, na.rm = T), 
+             s = sd(fitness, na.rm = T)/sqrt(n()),
+             .groups = "drop" ) %>%
+  mutate( dataset = factor(dataset, levels = .dataset) ) %>% 
+  
+  # displaying plot. 
+  ggplot() + 
+  geom_point( aes(dataset, y, col = cluster_new), size = 3 ) + 
+  geom_line( aes(dataset, y, col = cluster_new, group = cluster_new),
+             lty = 2 ) +
+  geom_errorbar( aes( dataset, ymin = y - s, ymax = y + s,
+                      col = cluster_new ), 
+                 width = 0.1 ) +
+  
+  # colouring. 
+  scale_color_manual( name = "Cluster", values = .ccl ) +
+  
+  # labelling. 
+  xlab("") + ylab("Mean fitness") + 
+  scale_x_discrete(
+    breaks = .dataset,
+    labels = .dataset %>% str_to_title()
+  )
+```
+
+
+## Variance test
+
+```{r}
+asi = .data %>% filter( cluster_new == "ASI" ) %>% pull(fitness)
+eur = .data %>% filter( cluster_new == "EUR" ) %>% pull(fitness)
+me = .data %>% filter( cluster_new == "ME" ) %>% pull(fitness)
+
+var.test(asi, eur)
+var.test(me, asi)
+var.test(me, eur)
+```
+
+
+
+
+
+# Statistical analysis (model [1])
+
+
+```{r modelling}
+model = 
+  .data %>% 
+  mutate(
+    fitness = int( fitness/2 ), 
+    dataset = fct( dataset, level = .dataset ) 
+    ) %>%  
+  filter_na( fitness, cluster_new ) %>% 
+  group_by( dataset ) %>% 
+  
+  group_map(
+    ~ glmer.nb( fitness ~ cluster_new + (1|blockID) + (1|accessionID),
+                data = .x %>% balance_block() )
+  ) %>% 
+  name( .dataset )
+
+model %>% print()
+```
+
+
+```{r}
+bind_rows(
+  cl = model$guangzhou@frame$cluster_new,
+  x = model$guangzhou%>% predict( )
+) %>% 
+  group_by( cl ) %>% 
+  summarise( m = mean(x), s = sd(x))
+```
+
+```{r}
+bind_rows(
+  tibble(
+    cl = model$uppsala@frame$cluster_new,
+    x = model$uppsala %>% predict( )
+  ),
+  tibble(
+    cl = model$guangzhou@frame$cluster_new,
+    x = model$guangzhou %>% predict( )
+  ),
+  tibble(
+    cl = model$toronto@frame$cluster_new,
+    x = model$toronto %>% predict( )
+  )
+) %>% 
+  group_by( cl ) %>% 
+  summarise( m = mean(x), s = sd(x) )
+  
+```
+
+
+
+```{r}
+model.other = 
+  .data %>% 
+  # filter( dataset != "toronto") %>% 
+  mutate(
+    fitness = diam_ros, 
+    dataset = fct( dataset, level = .dataset ) 
+    ) %>%  
+  filter_na( fitness, cluster_new ) %>% 
+  group_by( dataset ) %>% 
+  
+  group_map(
+    ~ lmer( fitness ~ cluster_new + (1|blockID) + (1|accessionID),
+                data = .x %>% balance_block() )
+  ) %>%
+  # name( c("uppsala", "guangzhou") )
+  name( .dataset )
+
+```
+
+
+```{r}
+tibble(
+  cl = model.other$guangzhou@frame$cluster_new,
+  x = model.other$guangzhou %>% predict( type = "response" )
+) %>% 
+  group_by( cl ) %>% 
+  summarise( m = mean(x), s = sd(x) )
+```
+
+```{r}
+bind_rows(
+  tibble(
+    cl = model.other$uppsala@frame$cluster_new,
+    x = model.other$uppsala %>% predict( type = "response" )
+  ),
+  tibble(
+    cl = model.other$guangzhou@frame$cluster_new,
+    x = model.other$guangzhou %>% predict( type = "response" )
+  ),
+  tibble(
+    cl = model.other$toronto@frame$cluster_new,
+    x = model.other$toronto %>% predict( type = "response" )
+  )
+) %>% 
+  group_by( cl ) %>% 
+  summarise( m = mean(x), s = sd(x) )
+  
+```
+
+
+
+
+## Genetic effect
+
+```{r}
+lapply( model, Anova )
+```
+
+
+## Pairwise difference
+
+```{r}
+lapply(
+  model,
+  function(m)
+    glht(m, linfct = mcp(cluster_new = "Tukey")) %>% detail
+)
+```
+
+
+

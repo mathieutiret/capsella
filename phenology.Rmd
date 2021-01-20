@@ -1,0 +1,136 @@
+---
+title: "Phenology"
+author: "Mathieu Tiret"
+date: "06/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source( "impl/header.R" )
+```
+
+
+```{r}
+.data %>% 
+  select( dataset, cluster_new, BT, FT, ST ) %>% 
+  filter_na( cluster_new ) %>% 
+  gather( key = "pheno", value = "days", -dataset, -cluster_new ) %>% 
+  filter( days >= 0, days < 250 ) %>% 
+  
+  ggplot() + 
+  geom_histogram(
+    aes( days, fill = pheno, group = pheno ), 
+    alpha = 0.5
+  ) + 
+  
+  # labelling
+  xlab( "Time (days)" ) + 
+  
+  facet_grid( cluster_new ~ dataset, scales = "free" )
+```
+
+
+## Environmental effect
+
+```{r}
+lmer( SP ~ FT + cluster_new * dataset + (1|accessionID) + (1|blockID),
+      data = .data ) %>% 
+  Anova()
+```
+
+
+```{r}
+var = quo(BT)
+
+up = .data %>% filter(dataset == "uppsala") %>% pull(!!var)
+gu = .data %>% filter(dataset == "guangzhou") %>% pull(!!var)
+to = .data %>% filter(dataset == "toronto") %>% pull(!!var)
+
+t.test(up, gu)
+t.test(up, to)
+t.test(to, gu) 
+```
+
+
+# Statistical analyses
+
+```{r}
+data = 
+  .data %>% 
+  # filter( dataset != "toronto" ) %>% 
+  filter_na( cluster_new ) %>% 
+  mutate( dataset = fct( dataset, level = .dataset ) )%>% 
+  filter( FP > 0 ) %>% 
+  select( dataset, accessionID, blockID, cluster_new, 
+          GP, BP, FP, SP ) %>% 
+  pivot_longer(
+    cols = c(GP, BP, FP, SP),
+    names_to = "pheno",
+    values_to = "days" ) %>% 
+  mutate( pheno = factor(pheno, levels = .pheno) )
+
+model =
+  list(
+    uppsala = 
+      data %>% 
+      filter( dataset == "uppsala" ) %>% 
+      group_by( pheno ) %>% 
+      
+      group_map(
+        ~ lmer( days ~ cluster_new + (1|blockID) + (1|accessionID),
+                data = .x %>% filter_na( days ) %>% balance_block() )
+      ) %>% 
+      name( .pheno ),
+    
+    guangzhou = 
+      data %>% 
+      filter( dataset == "guangzhou" ) %>% 
+      group_by( pheno ) %>% 
+      
+      group_map(
+        ~ lmer( days ~ cluster_new + (1|blockID) + (1|accessionID),
+                data = .x %>% filter_na( days ) %>% balance_block() )
+      ) %>% 
+      name( .pheno ),
+    
+    toronto = 
+      data %>% 
+      filter( dataset == "toronto", pheno %in% c("FP","SP") ) %>% 
+      group_by( pheno ) %>% 
+      
+      group_map(
+        ~ lmer( days ~ cluster_new + (1|blockID) + (1|accessionID),
+                data = .x %>% filter_na( days ) %>% balance_block() )
+      ) %>% 
+      name( c("FP","SP") )
+  )
+```
+
+## Summaries
+
+```{r}
+lapply(
+  model,
+  function(x) lapply(x, detail)
+)
+```
+
+```{r}
+lmer(BT ~ cluster_new + (1|accessionID) + (1|blockID), data = .data %>% filter( dataset == "toronto" ) %>% filter_na(cluster_new, BT) %>% balance_block() ) %>% detail
+```
+
+
+
+## Anova
+
+```{r}
+lapply(
+  model,
+  function(x) lapply(x, Anova)
+)
+```
+
+
+
+

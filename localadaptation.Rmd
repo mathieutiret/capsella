@@ -1,0 +1,91 @@
+---
+title: "Local adaptation"
+author: "Mathieu Tiret"
+date: "06/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source( "impl/header.R" )
+```
+
+
+# Selecting dataset
+
+```{r}
+data =
+  .data %>% 
+  filter_na( cluster_new, fitness ) %>% 
+  filter( dataset != "toronto", 
+          site %in% c("SE14","SE33","SE4x","HY","CSH") ) %>% 
+  mutate( dataset = fct( dataset, level = .dataset[-3] ) )
+
+# n = 12.
+data %>% distinct(accessionID)
+```
+
+
+# Interaction plot
+
+```{r}
+data %>% 
+  filter_na( cluster_new ) %>% 
+  group_by( dataset, cluster_new ) %>% 
+  summarise( y = mean(fitness, na.rm = T), 
+             s = sd(fitness, na.rm = T)/sqrt(n()),
+             .groups = "drop" ) %>% 
+  
+  # displaying plot. 
+  ggplot() + 
+  geom_point( aes(dataset, y, col = cluster_new), size = 3 ) + 
+  geom_line( aes(dataset, y, col = cluster_new, group = cluster_new),
+             lty = 2 ) +
+  geom_errorbar( aes( dataset, ymin = y - s, ymax = y + s,
+                      col = cluster_new ), 
+                 width = 0.1 ) +
+  
+  # colouring. 
+  scale_color_manual( name = "Cluster", values = .ccl ) +
+  
+  # labelling. 
+  xlab("") + ylab("Mean fitness") + 
+  scale_x_discrete(
+    breaks = .dataset,
+    labels = .dataset %>% str_to_title()
+  )
+```
+
+# Statistical analysis
+
+```{r}
+model = 
+  data %>% 
+  mutate( fitness = int( fitness/2 ) ) %>%  
+  filter_na( fitness, cluster_new ) %>% 
+  group_by( dataset ) %>% 
+  
+  group_map(
+    ~ glmer.nb( fitness ~ cluster_new + (1|blockID) + (1|accessionID),
+                data = .x %>% balance_block() )
+  ) %>% 
+  name( c("uppsala", "guangzhou") )
+```
+
+```{r}
+bind_rows(
+  cl = model$guangzhou@frame$cluster_new,
+  x = model$guangzhou %>% predict()
+) %>% 
+  group_by( cl ) %>% 
+  summarise( m = mean(x), s = sd(x))
+```
+
+
+```{r}
+lapply(
+  model, detail
+)
+```
+
+

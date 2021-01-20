@@ -1,0 +1,272 @@
+---
+title: "Finlay-Wilkinson Regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+## loading the header. ------------------------------------
+source( "impl/header.R" )
+```
+
+
+
+```{r loading chunk, include=FALSE}
+
+## target variable. ---------------------------------------
+# @user : to change. 
+variable = quo( SP )
+
+## main dataset. ------------------------------------------
+fwr.data =
+  # loading data. -------------------------------
+  .data %>% 
+  
+  # creating the target variable. ---------------
+  mutate( var = !!variable ) %>% 
+  
+  # filtering. ----------------------------------
+  # NAs.
+  filter_na( var, cluster_new ) %>% 
+  
+  # singleton per dataset.
+  group_by( dataset, accessionID ) %>% 
+  filter( n() > 1 ) %>% 
+  
+  # present on all sites.
+  group_by( accessionID ) %>% 
+  filter( n_distinct(dataset) == length(.dataset) ) %>% 
+  
+  # transforming. -------------------------------
+  # computing FWR environment. 
+  group_by( dataset ) %>% 
+  mutate( env = mean(var) ) %>% 
+  ungroup %>% 
+  mutate( renv = env %>% frank( ties.method = "dense") ) %>% 
+  
+  # computing statistical regressions.
+  group_by( accessionID ) %>% 
+  mutate(
+    intercept = lm( var ~ env ) %>% coef() %>% .["(Intercept)"],
+    slope     = lm( var ~ env ) %>% coef() %>% .["env"],
+    pval      = lm( var ~ offset(env) + env ) %>% 
+      detail() %>% coef() %>% .["env", "Pr(>|t|)"]
+  ) %>% 
+  
+  # summarising.
+  group_by( accessionID, dataset, cluster_new ) %>% 
+  summarise_at(
+    vars( var, env, intercept, slope, pval, latitude ),
+    mean
+  ) %>% 
+  ungroup()
+```
+
+
+# FWR plots.
+
+
+```{r}
+## constructing plots. ------------------------------------ 
+fwr.plot =
+  # loading data. -------------------------------
+  fwr.data %>%
+  group_by( cluster_new ) %>% 
+  
+  # applying an lambda function to each group. --
+  # @dev: .x is the variables, .y is the grouping variable. 
+  group_map(
+    ~ ggplot( .x ) + 
+      
+      # plotting. ---------------------
+      geom_point(
+        aes( env, var ),
+        col = muted( .ccl[.y$cluster_new] )
+      ) + 
+      geom_abline(
+        aes( intercept = intercept, 
+             slope = slope,
+             group = accessionID,
+             col = latitude )
+      ) + 
+      geom_abline( slope = 1, lwd = 3 ) +
+      
+      # colours. ----------------------
+      scale_color_gradient(
+        high = .ccl[.y$cluster_new],
+        name = "Latitude"
+      ) + 
+      
+      # limiting. ---------------------
+      ylim( min(fwr.data$var), max(fwr.data$var) ) + 
+    
+      # labelling. --------------------
+      # ylab( "Bolting time" ) +
+      # ylab( "Flowring time" ) +
+      # ylab( "Flowring duration" ) +
+      ylab( "Senescence time" ) +
+      # ylab( "Fitness" ) +
+      xlab( NULL ) + 
+      scale_x_continuous(
+        breaks = 
+          .x %>% 
+          distinct(env) %>% 
+          arrange(env) %>% 
+          pull,
+        labels = 
+          .x %>% 
+          group_by( dataset ) %>% 
+          summarise( env = first(env), .groups = "drop" ) %>% 
+          arrange( env ) %>% 
+          mutate( s = paste0(
+            dataset %>% str_to_title(), " (",
+            env %>% round(), ")"
+            )
+          ) %>% 
+          pull(s)
+      ) + 
+      ggtitle(
+        paste0(
+          .y$cluster_new, 
+          
+          " : Intercept = ",
+          .x$intercept %>% mean() %>% round(1),
+          " (",
+          .x$intercept %>% sd() %>% round(1),
+          "); Slope = ",
+          .x$slope %>% mean() %>% round(3),
+          " (",
+          .x$slope %>% sd() %>% round(3),
+          ")"
+        )
+      ) +
+      
+      # theme. ------------------------
+      theme()
+  )
+
+## displaying plots. --------------------------------------
+fwr.plot[[1]]
+fwr.plot[[2]]
+fwr.plot[[3]]
+
+## saving plots. ------------------------------------------
+# fwr.plot[[1]] %>% save_plot( "fwr_asi_nb.png" )
+# fwr.plot[[2]] %>% save_plot( "fwr_eur_nb.png" )
+# fwr.plot[[3]] %>% save_plot( "fwr_me_nb.png"  )
+
+```
+
+
+# Table
+
+
+```{r}
+fwr.data %>% 
+  distinct( accessionID, cluster_new, intercept, slope ) %>% #changes mean. 
+  group_by( cluster_new ) %>% 
+  summarise( m.in = mean(intercept) %>% round(3), 
+             v.in = sd(intercept) %>% round(3),
+             m.sl = mean(slope) %>% round(3),
+             v.sl = sd(slope) %>% round(3),
+             .groups = "drop" ) %>% 
+  
+  kable( caption = "Finlay-Wilkinson Regression",
+         col.names = c(
+           "Cluster", "Intercept", "Std(Intercept)",
+           "Slope", "Std(Slope)" )
+         ) %>% 
+  kable_styling("striped")
+  
+
+```
+
+
+# Statistical tests
+
+## Intercept
+
+```{r}
+fwr.data %>%
+  distinct( accessionID, cluster_new, intercept, slope ) -> a
+
+mp = array( NA, c(3,3) )
+vp = array( NA, c(3,4) )
+pair.cluster = names(.ccl) %>% combn(2)
+
+for( i in 1:ncol(pair.cluster) )
+{
+  cl = pair.cluster[,i]
+  
+  # mean.
+  mp[i,] = t.test(
+    a %>% filter( cluster_new == cl[1] ) %>% pull(intercept),
+    a %>% filter( cluster_new == cl[2] ) %>% pull(intercept),
+    alternative = "two.sided"
+  )[c("p.value", "statistic", "parameter")] %>% unlist
+  
+  # var. 
+  vp[i,] = var.test(
+    a %>% filter( cluster_new == cl[1] ) %>% pull(intercept),
+    a %>% filter( cluster_new == cl[2] ) %>% pull(intercept),
+    alternative = "two.sided"
+  )[c("p.value", "statistic", "parameter")] %>% unlist
+}
+
+## displaying. --------------------------------------------
+for( i in 1:ncol(pair.cluster) )
+{
+  print( paste0( "Intercept mean test ", 
+                 paste0(pair.cluster[,i], collapse = "/"), 
+                 " : p = ", mp[i] %>% round(5) ) )
+  print( paste0( "Intercept var test ", 
+                 paste0(pair.cluster[,i], collapse = "/"), 
+                 " : p = ", vp[i] %>% round(5) ) )
+}
+
+```
+
+
+## Slope
+
+
+```{r}
+fwr.data %>%
+  distinct( accessionID, cluster_new, intercept, slope ) -> a
+
+mp = array( NA, c(3,3) )
+vp = array( NA, c(3,4) )
+pair.cluster = names(.ccl) %>% combn(2)
+
+for( i in 1:ncol(pair.cluster) )
+{
+  cl = pair.cluster[,i]
+  
+  # mean.
+  mp[i,] = t.test(
+    a %>% filter( cluster_new == cl[1] ) %>% pull(slope),
+    a %>% filter( cluster_new == cl[2] ) %>% pull(slope),
+    alternative = "two.sided"
+  )[c("p.value", "statistic", "parameter")] %>% unlist
+  
+  # var. 
+  vp[i,] = var.test(
+    a %>% filter( cluster_new == cl[1] ) %>% pull(slope),
+    a %>% filter( cluster_new == cl[2] ) %>% pull(slope),
+    alternative = "two.sided"
+  )[c("p.value", "statistic", "parameter")] %>% unlist
+}
+
+## displaying. --------------------------------------------
+for( i in 1:ncol(pair.cluster) )
+{
+  print( paste0( "Slope mean test ", 
+                 paste0(pair.cluster[,i], collapse = "/"), 
+                 " : p = ", mp[i] %>% round(5) ) )
+  print( paste0( "Slope var test ", 
+                 paste0(pair.cluster[,i], collapse = "/"), 
+                 " : p = ", vp[i] %>% round(5) ) )
+}
+
+```
+

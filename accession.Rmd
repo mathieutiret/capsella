@@ -1,0 +1,52 @@
+---
+title: "Accession information"
+author: "Mathieu Tiret"
+date: "06/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source( "impl/header.R" )
+```
+
+
+```{r}
+b.uppsala = .data %>% 
+  filter_na( fitness, cluster_new ) %>% 
+  filter( dataset == "uppsala" ) %>% 
+  balance_block() %>% 
+  pull(accessionID)
+
+b.guangzhou = .data %>% 
+  filter_na( fitness, cluster_new ) %>% 
+  filter( dataset == "guangzhou" ) %>% 
+  balance_block() %>% 
+  pull(accessionID)
+
+b.toronto = .data %>% 
+  filter_na( fitness, cluster_new ) %>% 
+  filter( dataset == "toronto" ) %>% 
+  balance_block() %>% 
+  pull(accessionID)
+
+.data %>% 
+  group_by( accessionID, country ) %>% 
+  summarise(
+    cluster = unique(cluster_new),
+    uppsala = ifelse( any(dataset == "uppsala"), 
+                      ifelse(accessionID %in% b.uppsala, 
+                             "X*", "X"), "0" ),
+    guangzhou = ifelse( any(dataset == "guangzhou"), 
+                        ifelse(accessionID %in% b.guangzhou, 
+                               "X*", "X"), "0" ),
+    toronto = ifelse( any(dataset == "toronto"), 
+                      ifelse(accessionID %in% b.toronto, 
+                             "X*", "X"), "0" ),
+    .groups = "drop"
+  ) %>% 
+  arrange( cluster ) %>% 
+  print_all()
+  # fwrite( "table.csv" )
+```
+

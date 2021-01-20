@@ -1,0 +1,100 @@
+---
+title: "Genotype information"
+author: "Mathieu Tiret"
+date: "06/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("impl/header.R")
+```
+
+# MDS on genotypes
+
+
+```{r}
+# converting genetic data into matrices. 
+l1 = gen.data %>% 
+  filter_na( cluster_new ) %>% 
+  filter( str_detect(locus, ".1$") ) %>% 
+  select( -cluster_new ) %>%
+  spread( accessionID, genotype ) %>% 
+  select(-locus) %>% 
+  as.matrix()
+
+l2 = gen.data %>% 
+  filter_na( cluster_new ) %>% 
+  filter( str_detect(locus, ".2$") ) %>% 
+  select( -cluster_new ) %>%
+  spread( accessionID, genotype ) %>% 
+  select(-locus) %>% 
+  as.matrix()
+
+```
+
+
+```{r}
+dist.matrix = matrix( NA, nrow = ncol(l1), ncol = ncol(l1) )
+count.na    = matrix( NA, nrow = ncol(l1), ncol = ncol(l1) )
+
+for( i in 1:nrow(dist.matrix) )
+  for( j in 1:i )
+  {
+    dist.matrix[i,j] = dist.matrix[j,i] = 
+      mean( (l1[,i] != l1[,j]) + 
+              (l1[,i] != l2[,j]) +
+              (l2[,i] != l1[,j]) +
+              (l2[,i] != l2[,j]), 
+            na.rm = T )
+    
+    count.na[i,j] = count.na[j,i] = 
+      sum( is.na( (l1[,i] != l1[,j]) + 
+              (l1[,i] != l2[,j]) +
+              (l2[,i] != l1[,j]) +
+              (l2[,i] != l2[,j]) ) )
+  }
+```
+
+
+```{r}
+# computing MDS.
+mds = cmdscale( dist.matrix, eig = T, k = 5 )
+eig = mds$eig
+eig[eig<0] = 0
+axis.perc = eig/sum(eig)*100
+
+# relabelling. 
+mds.tibble =
+  tibble(
+    accessionID = colnames(l1), 
+    x = mds$points[,1], y = mds$points[,2]
+  ) %>%
+  left_join( gen.data %>% distinct(accessionID, cluster_new),
+             by = "accessionID" )
+
+# displaying plot. 
+mds.tibble %>% 
+
+  # plotting. 
+  ggplot() + 
+  geom_point( aes(x, -y, col = cluster_new) ) + 
+  geom_density2d(
+    aes(x, -y, col = cluster_new, group = cluster_new), alpha = 0.2
+  ) + 
+  
+  # colouring. 
+  scale_color_manual( name = "Cluster", values = .ccl ) +
+  
+  # labelling.
+  xlab( "Axis 1 (" %+% (axis.perc[1] %>% round(1)) %+% "%)" ) +
+  ylab( "Axis 2 (" %+% (axis.perc[2] %>% round(1)) %+% "%)" )
+```
+
+
+
+
+
+
+
+
